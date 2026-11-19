@@ -6,15 +6,13 @@ One image that sums up the world news of Thursday 19 November 2026, drawn as a n
 [![rank](https://make.fun/badge/news-image-20261119/Whydiriki700/news-image-20261119/rank.svg)](https://make.fun/bounty/news-image-20261119/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=news-image-20261119)
 [![reward](https://make.fun/badge/news-image-20261119/Whydiriki700/news-image-20261119/reward.svg)](https://make.fun/bounty/news-image-20261119?utm_source=github&utm_medium=readme&utm_campaign=news-image-20261119)
 
-## Status: frame entry
+## About the entry
 
-This repository currently holds the kit starter image as a placeholder. The final poster is built on the morning of Friday 20 November 2026, once Thursday 19 November's news is complete, and submitted signed before the deadline of 21 November 2026 00:00 UTC (07:00 WIB).
+The page is composed programmatically (HTML and SVG with real type, rendered to a 1024 by 1024 PNG), so every headline stays crisp and legible. `main.ts` is the entry program: it validates `entry.png` against the competition's limits (a whole PNG or JPEG, at most 1 MiB and 1024 by 1024 pixels) and copies it to the output directory.
 
-## How it is made
+The lead story is the first Trump-Xi-Putin three-way summit at APEC in Shenzhen. Around it: GTA VI's global rollout, Anthropic's record $81.3bn IPO, the US and Iran trading fire again, Hakeem Jeffries' nomination as the first Black Speaker of the US House, the EU's €45bn Ukraine loan, and Voyager 1 reaching one light-day from Earth.
 
-The page is composed programmatically (HTML and SVG with real type, rendered to a 1024 by 1024 PNG), so every headline stays crisp and legible. `main.ts` is the entry program: it copies `entry.png` to the output directory. The image is a whole PNG of at most 1 MiB and 1024 by 1024 pixels.
-
-```
+```text
 mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
 ```
 
