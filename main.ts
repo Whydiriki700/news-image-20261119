@@ -1,75 +1,67 @@
-// The World in One Image, Thursday 19 November 2026.
-// Entry program for the make.fun news-image-20261119 bounty (Node 22, standard library only).
-//
-// entry.png beside this file is the entry: a one-page newspaper that sums up the day the
-// Trump-Xi-Putin three-way summit met in Shenzhen. This program checks the picture against
-// the competition's limits, then hands it in as /output/entry.png.
-//
-// Outside the grader's container, MAKEFUN_OUTPUT_DIR stands in for /output:
+// Entry program for news-image-20261119: Thursday 19 November 2026 in one image.
+// Node 22, standard library only. It takes the poster beside this file, entry.png,
+// proves it fits the competition's limits, and writes it out as /output/entry.png.
+// Run it outside the grader with MAKEFUN_OUTPUT_DIR standing in for /output:
 //   mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
 
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-const LIMIT_BYTES = 1_048_576; // 1 MiB, the competition's file size cap
-const LIMIT_SIDE = 1_024; // no side of the picture may exceed 1024 px
+const SRC = new URL('./entry.png', import.meta.url);
+const BYTES_MAX = 1_048_576;
+const SIDE_MAX = 1_024;
 
-const here = new URL('.', import.meta.url);
-const source = join(here.pathname, 'entry.png');
-if (!existsSync(source)) throw new Error('entry.png is missing beside main.ts');
-const image = readFileSync(source);
-
-if (image.length > LIMIT_BYTES) {
-  throw new Error(`entry image is ${image.length} bytes, over the ${LIMIT_BYTES} byte limit`);
+function fail(msg) {
+  throw new Error(msg);
 }
 
-function readPngSize(buf) {
-  // PNG: an 8 byte signature, then IHDR carries width and height as big-endian uint32.
-  const signature = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
-  if (!signature.every((byte, i) => buf[i] === byte)) return null;
-  return { width: buf.readUInt32BE(16), height: buf.readUInt32BE(20), kind: 'PNG' };
+const bytes = readFileSync(SRC);
+if (bytes.length > BYTES_MAX) fail(`poster is ${bytes.length} bytes, limit is ${BYTES_MAX}`);
+
+function pngDims(b) {
+  const magic = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  if (!b.subarray(0, 8).equals(magic)) return null;
+  return { w: b.readUInt32BE(16), h: b.readUInt32BE(20), fmt: 'PNG' };
 }
 
-function readJpegSize(buf) {
-  // JPEG: opens FF D8, then walks segments until a SOF0 or SOF2 frame header gives the size.
-  if (buf[0] !== 0xff || buf[1] !== 0xd8) return null;
-  let offset = 2;
-  while (offset + 9 < buf.length) {
-    if (buf[offset] !== 0xff) return null;
-    const marker = buf[offset + 1];
-    const length = buf.readUInt16BE(offset + 2);
-    if (marker === 0xc0 || marker === 0xc2) {
-      return { width: buf.readUInt16BE(offset + 7), height: buf.readUInt16BE(offset + 5), kind: 'JPEG' };
+function jpgDims(b) {
+  if (b[0] !== 0xff || b[1] !== 0xd8) return null;
+  let at = 2;
+  while (at + 9 < b.length) {
+    if (b[at] !== 0xff) return null;
+    const mark = b[at + 1];
+    const len = b.readUInt16BE(at + 2);
+    if (mark === 0xc0 || mark === 0xc2) {
+      return { w: b.readUInt16BE(at + 7), h: b.readUInt16BE(at + 5), fmt: 'JPEG' };
     }
-    offset += 2 + length;
+    at += 2 + len;
   }
   return null;
 }
 
-const size = readPngSize(image) ?? readJpegSize(image);
-if (!size) throw new Error('entry image is neither a whole PNG nor a whole JPEG');
-if (size.width > LIMIT_SIDE || size.height > LIMIT_SIDE) {
-  throw new Error(`entry image is ${size.width}x${size.height}, over the ${LIMIT_SIDE} pixel limit`);
+const dims = pngDims(bytes) ?? jpgDims(bytes);
+if (!dims) fail('poster is neither a whole PNG nor a whole JPEG');
+if (dims.w > SIDE_MAX || dims.h > SIDE_MAX) {
+  fail(`poster is ${dims.w}x${dims.h}, limit is ${SIDE_MAX} on a side`);
 }
-// A whole PNG ends with its IEND chunk (12 bytes: length 0, type IEND, CRC).
-// A file cut short before it is not the whole image the header describes.
-if (size.kind === 'PNG') {
-  const tail = image.subarray(image.length - 12);
-  const isIend = tail.readUInt32BE(0) === 0 && tail.toString('ascii', 4, 8) === 'IEND';
-  if (!isIend) throw new Error('entry PNG does not end with its IEND chunk');
+
+if (dims.fmt === 'PNG') {
+  // The last 12 bytes of a complete PNG are the IEND chunk: a zero length,
+  // the four letters IEND, and its checksum. Anything shorter is a cut file.
+  const tail = bytes.subarray(bytes.length - 12);
+  const whole = tail.readUInt32BE(0) === 0 && tail.subarray(4, 8).toString('ascii') === 'IEND';
+  if (!whole) fail('poster PNG is missing its closing IEND chunk');
 }
 
 const outDir = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
+const dest = join(outDir, 'entry.png');
 mkdirSync(outDir, { recursive: true });
-const target = join(outDir, 'entry.png');
-writeFileSync(target, image);
+writeFileSync(dest, bytes);
 
-// Read the handed-in copy back and prove it is the same picture, byte for byte:
-// the judge scores exactly these bytes, so a short or altered copy fails loudly here.
-const digest = (buf) => createHash('sha256').update(buf).digest('hex');
-const handedIn = readFileSync(target);
-if (handedIn.length !== image.length || digest(handedIn) !== digest(image)) {
-  throw new Error('the handed-in entry.png does not match the source image');
+const sha = (buf) => createHash('sha256').update(buf).digest('hex');
+const back = readFileSync(dest);
+if (back.length !== bytes.length || sha(back) !== sha(bytes)) {
+  fail('the copy written to the output does not match entry.png');
 }
-console.log(`handed in entry.png: ${size.kind} ${size.width}x${size.height}, ${image.length} bytes, sha256 ${digest(image).slice(0, 12)}`);
+console.log(`entry.png handed in: ${dims.fmt} ${dims.w}x${dims.h}, ${bytes.length} bytes, sha256 ${sha(bytes).slice(0, 12)}`);
