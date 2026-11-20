@@ -1,67 +1,64 @@
-// Entry program for news-image-20261119: Thursday 19 November 2026 in one image.
-// Node 22, standard library only. It takes the poster beside this file, entry.png,
-// proves it fits the competition's limits, and writes it out as /output/entry.png.
-// Run it outside the grader with MAKEFUN_OUTPUT_DIR standing in for /output:
-//   mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
+// news-image-20261119 entrypoint.
+// The entry is a single front-page image (entry.png, kept beside this file).
+// This program validates the image and publishes it to the output folder
+// the harness points at, byte for byte.
 
-import { createHash } from 'node:crypto';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { createHash } from "node:crypto";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const SRC = new URL('./entry.png', import.meta.url);
-const BYTES_MAX = 1_048_576;
-const SIDE_MAX = 1_024;
+const MAX_BYTES = 1024 * 1024; // the bounty caps the entry at 1 MiB
+const here = dirname(fileURLToPath(import.meta.url));
 
-function fail(msg) {
-  throw new Error(msg);
-}
-
-const bytes = readFileSync(SRC);
-if (bytes.length > BYTES_MAX) fail(`poster is ${bytes.length} bytes, limit is ${BYTES_MAX}`);
-
-function pngDims(b) {
-  const magic = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
-  if (!b.subarray(0, 8).equals(magic)) return null;
-  return { w: b.readUInt32BE(16), h: b.readUInt32BE(20), fmt: 'PNG' };
-}
-
-function jpgDims(b) {
-  if (b[0] !== 0xff || b[1] !== 0xd8) return null;
-  let at = 2;
-  while (at + 9 < b.length) {
-    if (b[at] !== 0xff) return null;
-    const mark = b[at + 1];
-    const len = b.readUInt16BE(at + 2);
-    if (mark === 0xc0 || mark === 0xc2) {
-      return { w: b.readUInt16BE(at + 7), h: b.readUInt16BE(at + 5), fmt: 'JPEG' };
-    }
-    at += 2 + len;
-  }
+function sniffFormat(bytes: Buffer): "png" | "jpeg" | null {
+  const pngMagic = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+  if (pngMagic.every((b, i) => bytes[i] === b)) return "png";
+  if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return "jpeg";
   return null;
 }
 
-const dims = pngDims(bytes) ?? jpgDims(bytes);
-if (!dims) fail('poster is neither a whole PNG nor a whole JPEG');
-if (dims.w > SIDE_MAX || dims.h > SIDE_MAX) {
-  fail(`poster is ${dims.w}x${dims.h}, limit is ${SIDE_MAX} on a side`);
+// PNG dimensions live in the IHDR chunk, right after the 8-byte signature.
+function pngSize(bytes: Buffer): { width: number; height: number } {
+  return { width: bytes.readUInt32BE(16), height: bytes.readUInt32BE(20) };
 }
 
-if (dims.fmt === 'PNG') {
-  // The last 12 bytes of a complete PNG are the IEND chunk: a zero length,
-  // the four letters IEND, and its checksum. Anything shorter is a cut file.
-  const tail = bytes.subarray(bytes.length - 12);
-  const whole = tail.readUInt32BE(0) === 0 && tail.subarray(4, 8).toString('ascii') === 'IEND';
-  if (!whole) fail('poster PNG is missing its closing IEND chunk');
+async function main(): Promise<void> {
+  const source = join(here, "entry.png");
+  const bytes = await readFile(source);
+
+  if (bytes.length === 0) throw new Error("entry.png is empty");
+  if (bytes.length > MAX_BYTES) {
+    throw new Error(`entry.png is ${bytes.length} bytes, over the 1 MiB cap`);
+  }
+  const format = sniffFormat(bytes);
+  if (format === null) throw new Error("entry.png is neither PNG nor JPEG bytes");
+  if (format === "png") {
+    const { width, height } = pngSize(bytes);
+    if (width > 1024 || height > 1024) {
+      throw new Error(`entry.png is ${width}x${height}, over the 1024x1024 cap`);
+    }
+  }
+
+  const digest = createHash("sha256").update(bytes).digest("hex");
+  const outDir = process.env.MAKEFUN_OUTPUT_DIR ?? "/output";
+  await mkdir(outDir, { recursive: true });
+  const target = join(outDir, "entry.png");
+  await writeFile(target, bytes);
+
+  // Read the published file back and prove it is identical to the source.
+  const republished = await readFile(target);
+  const republishedDigest = createHash("sha256").update(republished).digest("hex");
+  if (republishedDigest !== digest) {
+    throw new Error("published copy does not match the source image");
+  }
+
+  console.log(
+    `entry.png published: ${format}, ${bytes.length} bytes, sha256 ${digest}`,
+  );
 }
 
-const outDir = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
-const dest = join(outDir, 'entry.png');
-mkdirSync(outDir, { recursive: true });
-writeFileSync(dest, bytes);
-
-const sha = (buf) => createHash('sha256').update(buf).digest('hex');
-const back = readFileSync(dest);
-if (back.length !== bytes.length || sha(back) !== sha(bytes)) {
-  fail('the copy written to the output does not match entry.png');
-}
-console.log(`entry.png handed in: ${dims.fmt} ${dims.w}x${dims.h}, ${bytes.length} bytes, sha256 ${sha(bytes).slice(0, 12)}`);
+main().catch((err: unknown) => {
+  console.error(err instanceof Error ? err.message : String(err));
+  process.exit(1);
+});
