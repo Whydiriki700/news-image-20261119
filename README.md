@@ -1,3 +1,5 @@
+![news-image-20261119](assets/preview.png)
+
 # The World in One Image: Thursday 19 November 2026
 
 [![bounty](https://make.fun/badge/news-image-20261119.svg)](https://make.fun/bounty/news-image-20261119?utm_source=github&utm_medium=readme&utm_campaign=news-image-20261119)
